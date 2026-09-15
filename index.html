@@ -822,21 +822,24 @@ let p1_fighter = null;
 let p2_fighter = null;
 let projectiles = [];
 let gameFocused = false;
+let resumeMusicOnFocus = false;
 
 canvas.addEventListener('pointerdown', () => {
     const wasUnfocused = !gameFocused;
     gameFocused = true;
     canvas.focus();
 
-    // Resume the current music only when the player clicks back into the game.
-    if (wasUnfocused) {
+    // The opening menu stays silent. Music resumes only after Escape/losing focus.
+    if (wasUnfocused && resumeMusicOnFocus) {
         const track = game_mode === "GAME" ? battleMusic : menuMusic;
         track.play().catch(() => {});
+        resumeMusicOnFocus = false;
     }
 });
 
 // Clicking or switching away from the browser window pauses the game.
 function unfocusGame() {
+    if (gameFocused) resumeMusicOnFocus = true;
     gameFocused = false;
     keysDown.clear();
     menuMusic.pause();
@@ -882,6 +885,7 @@ function returnToMenu(playMenuMusic = true) {
         menuMusic.pause();
         battleMusic.pause();
         gameFocused = false;
+        resumeMusicOnFocus = true;
         keysDown.clear();
     }
 }
@@ -892,8 +896,8 @@ function handleKeyDown(key) {
         return;
     }
     if (game_mode === "MENU") {
-        if (key === '1') { opponent_mode = "CPU"; game_mode = "CHAR_SELECT"; playMusic(menuMusic); }
-        else if (key === '2') { opponent_mode = "PLAYER2"; game_mode = "CHAR_SELECT"; playMusic(menuMusic); }
+        if (key === '1') { opponent_mode = "CPU"; game_mode = "CHAR_SELECT";  }
+        else if (key === '2') { opponent_mode = "PLAYER2"; game_mode = "CHAR_SELECT"; }
     } else if (game_mode === "CHAR_SELECT") {
         if (key === 'ArrowLeft') p1_selected_idx = (p1_selected_idx - 1 + CHARACTERS.length) % CHARACTERS.length;
         else if (key === 'ArrowRight') p1_selected_idx = (p1_selected_idx + 1) % CHARACTERS.length;
