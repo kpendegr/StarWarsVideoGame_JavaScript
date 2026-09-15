@@ -856,8 +856,6 @@ function handleKeyDown(key) {
         returnToMenu();
         return;
     }
-    if (game_mode !== "MENU") drawExitButton();
-
     if (game_mode === "MENU") {
         if (key === '1') { opponent_mode = "CPU"; game_mode = "CHAR_SELECT"; playMusic(menuMusic); }
         else if (key === '2') { opponent_mode = "PLAYER2"; game_mode = "CHAR_SELECT"; playMusic(menuMusic); }
@@ -971,6 +969,8 @@ function gameLoop() {
     } else {
         drawMustafarBackground();
     }
+
+    if (game_mode !== "MENU") drawExitButton();
 
     if (game_mode === "MENU") {
         drawPixelText("STAR WARS: RETRO DUEL", 200, 80, 5, WHITE);
