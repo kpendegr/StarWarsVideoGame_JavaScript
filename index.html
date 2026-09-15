@@ -1006,7 +1006,9 @@ function gameLoop() {
         return;
     }
 
-    if (selected_map === 0) {
+    if (game_mode === "MENU") {
+        drawMustafarBackground();
+    } else if (selected_map === 0) {
         drawRect(BG_DARK, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
         drawRect(BG_MID, 0, 70, SCREEN_WIDTH, 230);
         drawRect(BG_LIGHT, 0, 70, SCREEN_WIDTH, 8);
@@ -1024,7 +1026,7 @@ function gameLoop() {
     if (game_mode !== "MENU") drawExitButton();
 
     if (game_mode === "MENU") {
-        drawPixelText("STAR WARS: RETRO DUEL", 200, 80, 5, WHITE);
+        drawPixelText("STAR WARS RETRO DUEL", 185, 80, 5, WHITE);
         drawRect(LUKE_BLUE, 150, 200, 700, 65);
         drawPixelText("PRESS (1) FOR SINGLE PLAYER (VS CPU)", 180, 222, 3, WHITE);
         drawRect(VADER_RED, 150, 300, 700, 65);
