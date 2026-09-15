@@ -822,6 +822,15 @@ let p1_fighter = null;
 let p2_fighter = null;
 let projectiles = [];
 
+canvas.addEventListener('click', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * SCREEN_WIDTH / rect.width;
+    const y = (e.clientY - rect.top) * SCREEN_HEIGHT / rect.height;
+    if (game_mode !== "MENU" && x >= SCREEN_WIDTH - 135 && x <= SCREEN_WIDTH - 30 && y >= 565 && y <= 593) {
+        returnToMenu();
+    }
+});
+
 window.addEventListener('keydown', (e) => {
     if (CONTROL_KEYS.has(e.key)) e.preventDefault();
     const key = normKey(e);
@@ -834,10 +843,24 @@ window.addEventListener('keyup', (e) => {
     keysDown.delete(key);
 });
 
+function returnToMenu() {
+    p1_fighter = null;
+    p2_fighter = null;
+    projectiles = [];
+    game_mode = "MENU";
+    playMusic(menuMusic);
+}
+
 function handleKeyDown(key) {
+    if (key === 'Escape' && game_mode !== "MENU") {
+        returnToMenu();
+        return;
+    }
+    if (game_mode !== "MENU") drawExitButton();
+
     if (game_mode === "MENU") {
-        if (key === '1') { opponent_mode = "CPU"; game_mode = "CHAR_SELECT"; }
-        else if (key === '2') { opponent_mode = "PLAYER2"; game_mode = "CHAR_SELECT"; }
+        if (key === '1') { opponent_mode = "CPU"; game_mode = "CHAR_SELECT"; playMusic(menuMusic); }
+        else if (key === '2') { opponent_mode = "PLAYER2"; game_mode = "CHAR_SELECT"; playMusic(menuMusic); }
     } else if (game_mode === "CHAR_SELECT") {
         if (key === 'ArrowLeft') p1_selected_idx = (p1_selected_idx - 1 + CHARACTERS.length) % CHARACTERS.length;
         else if (key === 'ArrowRight') p1_selected_idx = (p1_selected_idx + 1) % CHARACTERS.length;
@@ -866,11 +889,7 @@ function handleKeyDown(key) {
         }
     } else if (game_mode === "GAMEOVER") {
         if (key === 'r') {
-            p1_fighter = null;
-            p2_fighter = null;
-            projectiles = [];
-            playMusic(menuMusic);
-            game_mode = "MENU";
+            returnToMenu();
         }
     }
 }
@@ -902,6 +921,12 @@ function drawCharSelect() {
         drawPixelText("P2: USE (A) / (D) KEYS TO CHOOSE FIGHTER", 180, 535, 2, VADER_RED);
     }
     drawPixelText("PRESS [ENTER] TO COMMENCE BATTLE", 270, 565, 2, HEALTH_GREEN);
+}
+
+function drawExitButton() {
+    drawRect(BLACK, SCREEN_WIDTH - 135, 565, 105, 28);
+    drawRect(VADER_RED, SCREEN_WIDTH - 135, 565, 105, 28, 2);
+    drawPixelText("EXIT [ESC]", SCREEN_WIDTH - 125, 574, 2, WHITE);
 }
 
 function drawMapSelect() {
