@@ -829,9 +829,12 @@ canvas.addEventListener('pointerdown', () => {
     gameFocused = true;
     canvas.focus();
 
-    // The opening menu stays silent. Music resumes only after Escape/losing focus.
-    if (wasUnfocused && resumeMusicOnFocus) {
+    // Start the lobby music when the player first clicks into the opening 1/2 menu.
+    if (wasUnfocused) {
         const track = game_mode === "GAME" ? battleMusic : menuMusic;
+        if (game_mode === "MENU") {
+            track.currentTime = 30.0;
+        }
         track.play().catch(() => {});
         resumeMusicOnFocus = false;
     }
