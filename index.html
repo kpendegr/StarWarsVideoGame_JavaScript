@@ -871,17 +871,24 @@ window.addEventListener('keyup', (e) => {
     keysDown.delete(key);
 });
 
-function returnToMenu() {
+function returnToMenu(playMenuMusic = true) {
     p1_fighter = null;
     p2_fighter = null;
     projectiles = [];
     game_mode = "MENU";
-    playMusic(menuMusic);
+    if (playMenuMusic) {
+        playMusic(menuMusic);
+    } else {
+        menuMusic.pause();
+        battleMusic.pause();
+        gameFocused = false;
+        keysDown.clear();
+    }
 }
 
 function handleKeyDown(key) {
     if (key === 'Escape' && game_mode !== "MENU") {
-        returnToMenu();
+        returnToMenu(false);
         return;
     }
     if (game_mode === "MENU") {
