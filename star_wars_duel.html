@@ -1,0 +1,1042 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Star Wars: Galactic Arcade Duel</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #000; height: 100%; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas { background: #000; image-rendering: pixelated; display: block; }
+</style>
+</head>
+<body>
+<canvas id="game" width="1000" height="600" tabindex="0"></canvas>
+<script>
+"use strict";
+
+// ============================================================
+// NOTE ON MUSIC: this expects a "Music/menu_music.mp3" and
+// "Music/battle_music.mp3" hosted alongside this file (e.g.
+// uploaded to your site's media manager and referenced with a
+// full URL below). Browsers also block audio autoplay until the
+// user interacts with the page at least once (e.g. a keypress),
+// so the very first play call may silently fail until then.
+// ============================================================
+
+const SCREEN_WIDTH = 1000;
+const SCREEN_HEIGHT = 600;
+const FPS = 60;
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+canvas.focus();
+
+// ---------------- Colors ----------------
+const BG_DARK = 'rgb(20,24,38)';
+const BG_MID = 'rgb(35,42,60)';
+const BG_LIGHT = 'rgb(55,65,85)';
+const FLOOR_COLOR = 'rgb(25,25,35)';
+const LUKE_BLUE = 'rgb(0,160,255)';
+const SABER_GREEN = 'rgb(50,255,50)';
+const VADER_RED = 'rgb(255,0,50)';
+const MAUL_RED = 'rgb(255,30,0)';
+const LIGHTNING_YELLOW = 'rgb(255,220,50)';
+const SOLO_ORANGE = 'rgb(255,130,0)';
+const HEALTH_GREEN = 'rgb(0,255,100)';
+const WHITE = 'rgb(255,255,255)';
+const BLACK = 'rgb(0,0,0)';
+const BROWN = 'rgb(120,80,50)';
+const BEIGE = 'rgb(230,190,150)';
+const GRAY = 'rgb(100,105,115)';
+const PURPLE = 'rgb(160,50,255)';
+
+// ---------------- Draw helpers ----------------
+function drawRect(color, x, y, w, h, lw) {
+    if (w < 0) { x += w; w = -w; }
+    if (h < 0) { y += h; h = -h; }
+    if (lw && lw > 0) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lw;
+        ctx.strokeRect(x + lw / 2, y + lw / 2, Math.max(w - lw, 0), Math.max(h - lw, 0));
+    } else {
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, w, h);
+    }
+}
+
+function drawLine(color, x1, y1, x2, y2, width) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+}
+
+function drawPolygon(color, points) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(points[0][0], points[0][1]);
+    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
+    ctx.closePath();
+    ctx.fill();
+}
+
+// ---------------- Rect helper (mirrors pygame.Rect) ----------------
+class Rect {
+    constructor(x, y, w, h) { this.x = x; this.y = y; this.w = w; this.h = h; }
+    get left() { return this.x; }
+    set left(v) { this.x = v; }
+    get right() { return this.x + this.w; }
+    set right(v) { this.x = v - this.w; }
+    get top() { return this.y; }
+    set top(v) { this.y = v; }
+    get bottom() { return this.y + this.h; }
+    set bottom(v) { this.y = v - this.h; }
+    get centerx() { return this.x + this.w / 2; }
+    get centery() { return this.y + this.h / 2; }
+    colliderect(o) {
+        return this.x < o.x + o.w && this.x + this.w > o.x &&
+               this.y < o.y + o.h && this.y + this.h > o.y;
+    }
+}
+
+// ---------------- Starfield ----------------
+const STARS = [];
+for (let i = 0; i < 80; i++) {
+    STARS.push([
+        Math.floor(Math.random() * SCREEN_WIDTH),
+        Math.floor(Math.random() * (SCREEN_HEIGHT - 60)),
+        [1, 2, 3][Math.floor(Math.random() * 3)]
+    ]);
+}
+
+// ---------------- Retro bitmap font ----------------
+const PIXEL_ALPHABET = {
+    'A': [[0,1],[0,2],[0,3],[0,4],[1,0],[1,2],[2,1],[2,2],[2,3],[2,4]],
+    'B': [[0,0],[0,1],[0,2],[0,3],[0,4],[1,0],[1,2],[1,4],[2,1],[2,3]],
+    'C': [[0,1],[0,2],[0,3],[1,0],[1,4],[2,0],[2,4]],
+    'D': [[0,0],[0,1],[0,2],[0,3],[0,4],[1,0],[1,4],[2,1],[2,2],[2,3]],
+    'E': [[0,0],[0,1],[0,2],[0,3],[0,4],[1,0],[1,2],[1,4],[2,0],[2,2],[2,4]],
+    'F': [[0,0],[0,1],[0,2],[0,3],[0,4],[1,0],[1,2],[2,0],[2,2]],
+    'G': [[0,1],[0,2],[0,3],[1,0],[1,4],[2,0],[2,2],[2,3],[2,4]],
+    'H': [[0,0],[0,1],[0,2],[0,3],[0,4],[1,2],[2,0],[2,1],[2,2],[2,3],[2,4]],
+    'I': [[0,0],[0,4],[1,0],[1,1],[1,2],[1,3],[1,4],[2,0],[2,4]],
+    'J': [[0,3],[1,4],[2,0],[2,1],[2,2],[2,3]],
+    'K': [[0,0],[0,1],[0,2],[0,3],[0,4],[1,2],[2,0],[2,1],[2,3],[2,4]],
+    'L': [[0,0],[0,1],[0,2],[0,3],[0,4],[1,4],[2,4]],
+    'M': [[0,0],[0,1],[0,2],[0,3],[0,4],[1,1],[2,0],[2,1],[2,2],[2,3],[2,4]],
+    'N': [[0,0],[0,1],[0,2],[0,3],[0,4],[1,1],[2,2],[2,3],[2,4]],
+    'O': [[0,1],[0,2],[0,3],[1,0],[1,4],[2,1],[2,2],[2,3]],
+    'P': [[0,0],[0,1],[0,2],[0,3],[0,4],[1,0],[1,2],[2,1],[2,2]],
+    'Q': [[0,1],[0,2],[0,3],[1,0],[1,4],[2,1],[2,2],[2,3],[2,4],[3,4]],
+    'R': [[0,0],[0,1],[0,2],[0,3],[0,4],[1,0],[1,2],[2,1],[2,2],[2,3],[2,4]],
+    'S': [[0,1],[0,2],[0,4],[1,0],[1,2],[1,4],[2,0],[2,2],[2,3]],
+    'T': [[0,0],[1,0],[1,1],[1,2],[1,3],[1,4],[2,0]],
+    'U': [[0,0],[0,1],[0,2],[0,3],[1,4],[2,0],[2,1],[2,2],[2,3]],
+    'V': [[0,0],[0,1],[0,2],[1,3],[1,4],[2,0],[2,1],[2,2]],
+    'W': [[0,0],[0,1],[0,2],[0,3],[0,4],[1,3],[2,0],[2,1],[2,2],[2,3],[2,4]],
+    'X': [[0,0],[0,4],[1,1],[1,2],[1,3],[2,0],[2,4]],
+    'Y': [[0,0],[0,1],[1,2],[1,3],[1,4],[2,0],[2,1]],
+    'Z': [[0,0],[0,4],[1,0],[1,2],[1,4],[2,0],[2,4]],
+    '1': [[0,1],[1,0],[1,1],[1,2],[1,3],[1,4],[2,4]],
+    '2': [[0,0],[0,2],[0,3],[0,4],[1,0],[1,2],[1,4],[2,0],[2,1],[2,4]],
+    '3': [[0,0],[0,4],[1,0],[1,2],[1,4],[2,0],[2,1],[2,2],[2,3],[2,4]],
+    '4': [[0,0],[0,1],[0,2],[1,2],[2,0],[2,1],[2,2],[2,3],[2,4]],
+    '5': [[0,0],[0,1],[0,2],[0,4],[1,0],[1,2],[1,4],[2,0],[2,2],[2,3]],
+    '6': [[0,1],[0,2],[0,3],[0,4],[1,0],[1,2],[1,4],[2,1],[2,2],[2,3],[2,4]],
+    '7': [[0,0],[1,0],[1,1],[2,2],[2,3],[2,4]],
+    '8': [[0,1],[0,2],[0,3],[1,0],[1,2],[1,4],[2,1],[2,2],[2,3]],
+    '9': [[0,0],[0,1],[0,2],[1,0],[1,2],[2,0],[2,1],[2,2],[2,3],[2,4]],
+    '0': [[0,0],[0,1],[0,2],[0,3],[0,4],[1,0],[1,4],[2,0],[2,1],[2,2],[2,3],[2,4]],
+    '-': [[0,2],[1,2],[2,2]],
+    ':': [[1,1],[1,3]],
+    ' ': [],
+    '(': [[1,0],[0,1],[0,2],[0,3],[1,4]],
+    ')': [[0,0],[1,1],[1,2],[1,3],[0,4]],
+    '/': [[2,0],[1,1],[1,2],[1,3],[0,4]]
+};
+
+function drawPixelText(text, x, y, size, color) {
+    size = size || 3;
+    color = color || WHITE;
+    let currentX = x;
+    for (const ch of text.toUpperCase()) {
+        const pixels = PIXEL_ALPHABET[ch];
+        if (pixels) {
+            for (const [px, py] of pixels) {
+                drawRect(color, currentX + px * size, y + py * size, size, size);
+            }
+        }
+        currentX += 4 * size;
+    }
+}
+
+// ---------------- Characters ----------------
+const CHARACTERS = [
+    { name: "OBI-WAN", color: LUKE_BLUE, ability: "FORCE PUSH", max_health: 250, speed: 7, jump: -18, weapon: "BLUE_SABER", attack_type: "SABER_SWING" },
+    { name: "LUKE", color: SABER_GREEN, ability: "SABER THROW", max_health: 250, speed: 7, jump: -18, weapon: "GREEN_SABER", attack_type: "SABER_SWING" },
+    { name: "HAN SOLO", color: SOLO_ORANGE, ability: "BLASTER", max_health: 200, speed: 9, jump: -17, weapon: "BLASTER", attack_type: "GUNSHOT" },
+    { name: "VADER", color: VADER_RED, ability: "FORCE CHOKE", max_health: 350, speed: 5, jump: -16, weapon: "RED_SABER", attack_type: "SABER_SWING" },
+    { name: "MAUL", color: MAUL_RED, ability: "DUAL THROW", max_health: 240, speed: 8.5, jump: -19, weapon: "DOUBLE_SABER", attack_type: "SABER_SWING" },
+    { name: "DOOKU", color: LIGHTNING_YELLOW, ability: "LIGHTNING", max_health: 280, speed: 6.5, jump: -16, weapon: "RED_SABER", attack_type: "SABER_SWING" },
+    { name: "PALPATINE", color: PURPLE, ability: "FORCE LIGHTNING", max_health: 220, speed: 5, jump: -15, weapon: null, attack_type: "FORCE_LIGHTNING" }
+];
+
+// ---------------- Special Projectile ----------------
+class SpecialProjectile {
+    constructor(x, y, direction, color, p_type, owner) {
+        if (p_type === "FORCE PUSH") this.rect = new Rect(x, y - 30, 25, 90);
+        else if (p_type === "SABER THROW") this.rect = new Rect(x, y + 10, 40, 40);
+        else if (p_type === "BLASTER") this.rect = new Rect(x, y + 15, 30, 8);
+        else if (p_type === "FORCE CHOKE") this.rect = new Rect(x, y + 40, 60, 20);
+        else if (p_type === "DUAL THROW") this.rect = new Rect(x, y + 5, 80, 16);
+        else if (p_type === "LIGHTNING") this.rect = new Rect(x, y, 65, 35);
+        else if (p_type === "FORCE LIGHTNING") this.rect = new Rect(x, y + 10, 80, 45);
+        else this.rect = new Rect(x, y, 35, 15);
+
+        if (p_type === "BLASTER") this.speed = 18 * direction;
+        else if (p_type === "FORCE PUSH") this.speed = 9 * direction;
+        else if (p_type === "FORCE LIGHTNING") this.speed = 11 * direction;
+        else this.speed = 12 * direction;
+
+        this.color = color;
+        this.p_type = p_type;
+        this.active = true;
+        this.animation_tick = 0;
+        this.owner = owner;
+    }
+
+    update() {
+        this.rect.x += this.speed;
+        this.animation_tick++;
+        if (this.rect.right < 0 || this.rect.left > SCREEN_WIDTH) this.active = false;
+    }
+
+    draw() {
+        this.animation_tick++;
+        const r = this.rect;
+        if (this.p_type === "FORCE PUSH") {
+            drawRect(LUKE_BLUE, r.x, r.y, r.w, r.h, 4);
+            drawRect(WHITE, r.x + 8, r.y + 10, 8, r.h - 20);
+        } else if (this.p_type === "SABER THROW") {
+            drawRect(SABER_GREEN, r.x, r.y, r.w, r.h);
+            drawRect(WHITE, r.x, r.y, r.w, r.h, 3);
+        } else if (this.p_type === "BLASTER") {
+            drawRect(VADER_RED, r.x, r.y, r.w, r.h);
+            drawRect(WHITE, r.x + 5, r.y + 2, r.w - 10, 4);
+        } else if (this.p_type === "FORCE CHOKE") {
+            drawRect(PURPLE, r.x, r.y, r.w, r.h);
+            if (this.animation_tick % 4 < 2) drawRect(BLACK, r.x + 10, r.y + 4, r.w - 20, 12);
+        } else if (this.p_type === "DUAL THROW") {
+            drawRect(MAUL_RED, r.x, r.y, r.w, r.h);
+            drawRect(GRAY, r.x + 30, r.y - 4, 20, 24);
+            drawRect(WHITE, r.x + 5, r.y + 4, r.w - 10, 8);
+        } else if (this.p_type === "FORCE LIGHTNING") {
+            drawLine(LIGHTNING_YELLOW, r.left, r.centery, r.left + 20, r.top, 5);
+            drawLine(LIGHTNING_YELLOW, r.left + 15, r.centery, r.left + 35, r.bottom, 5);
+            drawLine(WHITE, r.left + 10, r.centery, r.right, r.centery, 4);
+            drawLine(LIGHTNING_YELLOW, r.left + 35, r.centery, r.right - 10, r.top + 8, 4);
+            drawLine(LIGHTNING_YELLOW, r.left + 40, r.centery, r.right - 5, r.bottom - 8, 4);
+        } else if (this.p_type === "LIGHTNING") {
+            if (this.animation_tick % 2 === 0) {
+                drawRect(LIGHTNING_YELLOW, r.x, r.y, r.w, r.h);
+                drawRect(WHITE, r.x + 6, r.y + 6, r.w - 12, r.h - 12);
+            } else {
+                drawRect(WHITE, r.x, r.y, r.w, r.h);
+                drawRect(LIGHTNING_YELLOW, r.x + 4, r.y + 4, r.w - 8, r.h - 8);
+            }
+        }
+    }
+}
+
+function drawLightsaber(x, y, direction, color, length, double) {
+    length = length || 55;
+    const saber_h = 7, hilt_w = 15, hilt_h = 10;
+    if (direction > 0) {
+        drawRect(GRAY, x, y - 3, hilt_w, hilt_h);
+        drawRect(color, x + hilt_w, y, length, saber_h);
+        drawRect(WHITE, x + hilt_w + 5, y + 2, length - 10, 2);
+        if (double) {
+            drawRect(color, x - length, y, length, saber_h);
+            drawRect(WHITE, x - length + 5, y + 2, length - 10, 2);
+        }
+    } else {
+        drawRect(GRAY, x - hilt_w, y - 3, hilt_w, hilt_h);
+        drawRect(color, x - hilt_w - length, y, length, saber_h);
+        drawRect(WHITE, x - hilt_w - length + 5, y + 2, length - 10, 2);
+        if (double) {
+            drawRect(color, x, y, length, saber_h);
+            drawRect(WHITE, x + 5, y + 2, length - 10, 2);
+        }
+    }
+}
+
+// ---------------- Input state ----------------
+const keysDown = new Set();
+const CONTROL_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' ']);
+
+function normKey(e) {
+    return e.key.length === 1 ? e.key.toLowerCase() : e.key;
+}
+
+// ---------------- Fighter ----------------
+class Fighter {
+    constructor(x, y, char_data, control_type) {
+        this.name = char_data.name;
+        this.color = char_data.color;
+        this.ability = char_data.ability;
+        this.weapon = char_data.weapon;
+        this.control_type = control_type;
+        this.attack_type = char_data.attack_type;
+
+        this.health = char_data.max_health;
+        this.max_health = char_data.max_health;
+        this.speed = char_data.speed;
+        this.jump_power = char_data.jump;
+
+        this.width = 60;
+        this.height = 110;
+        this.rect = new Rect(x, y, this.width, this.height);
+        this.vel_x = 0;
+        this.vel_y = 0;
+        this.gravity = 1;
+        this.is_grounded = false;
+
+        this.facing_right = x < SCREEN_WIDTH / 2;
+        this.is_attacking = false;
+        this.attack_cooldown = 0;
+        this.attack_duration = 0;
+        this.attack_rect = null;
+        this.special_cooldown = 0;
+        this.force_choked = false;
+        this.force_choke_timer = 0;
+        this.force_choke_velocity = 0;
+
+        this.hitstun_frames = 0;
+        this.knockback_vel = 0;
+    }
+
+    take_damage(damage_amount, standard_attack) {
+        if (standard_attack === undefined) standard_attack = true;
+        this.health -= damage_amount;
+        const direction_multiplier = this.facing_right ? -1 : 1;
+        if (standard_attack) {
+            this.hitstun_frames = 12;
+            this.knockback_vel = 14 * direction_multiplier;
+        } else {
+            this.hitstun_frames = 20;
+            this.knockback_vel = 22 * direction_multiplier;
+        }
+    }
+
+    move(opponent_rect, projectiles_list) {
+        this.vel_x = 0;
+
+        if (this.force_choked) {
+            this.force_choke_timer -= 1;
+            this.rect.y -= 2;
+            this.rect.x += this.force_choke_velocity;
+            if (this.rect.left < 0) this.rect.left = 0;
+            if (this.rect.right > SCREEN_WIDTH) this.rect.right = SCREEN_WIDTH;
+            if (this.force_choke_timer <= 0) {
+                this.force_choked = false;
+                this.vel_y = 0;
+            }
+            this.tick_cooldown_counters();
+            return;
+        }
+
+        if (this.hitstun_frames <= 0) {
+            this.facing_right = this.rect.centerx < opponent_rect.centerx;
+        }
+
+        if (this.hitstun_frames > 0) {
+            this.vel_x = this.knockback_vel;
+            this.knockback_vel *= 0.85;
+            this.hitstun_frames -= 1;
+            this.apply_physics_and_boundaries();
+            this.tick_cooldown_counters();
+            return;
+        }
+
+        if (this.control_type === "player_1") {
+            if (keysDown.has('ArrowLeft')) this.vel_x = -this.speed;
+            if (keysDown.has('ArrowRight')) this.vel_x = this.speed;
+            if (keysDown.has('ArrowUp') && this.is_grounded) { this.vel_y = this.jump_power; this.is_grounded = false; }
+            if (keysDown.has(' ') && this.attack_cooldown === 0) this.attack();
+            if (keysDown.has('m') && this.special_cooldown === 0) this.use_special(projectiles_list);
+        } else if (this.control_type === "player_2") {
+            if (keysDown.has('a')) this.vel_x = -this.speed;
+            if (keysDown.has('d')) this.vel_x = this.speed;
+            if (keysDown.has('w') && this.is_grounded) { this.vel_y = this.jump_power; this.is_grounded = false; }
+            if (keysDown.has('f') && this.attack_cooldown === 0) this.attack();
+            if (keysDown.has('g') && this.special_cooldown === 0) this.use_special(projectiles_list);
+        } else if (this.control_type === "cpu") {
+            const distance = Math.abs(this.rect.centerx - opponent_rect.centerx);
+            if (distance > 250 && this.special_cooldown === 0 && Math.random() < 0.05) {
+                this.use_special(projectiles_list);
+            } else if (distance > 110) {
+                if (this.rect.centerx < opponent_rect.centerx) this.vel_x = this.speed - 2;
+                else this.vel_x = -(this.speed - 2);
+            } else {
+                if (this.attack_cooldown === 0 && Math.random() < 0.08) this.attack();
+                if (this.is_grounded && Math.random() < 0.02) { this.vel_y = this.jump_power; this.is_grounded = false; }
+            }
+        }
+
+        this.apply_physics_and_boundaries();
+        this.tick_cooldown_counters();
+    }
+
+    apply_physics_and_boundaries() {
+        this.vel_y += this.gravity;
+        this.rect.x += this.vel_x;
+        this.rect.y += this.vel_y;
+
+        if (this.rect.bottom >= SCREEN_HEIGHT - 50) {
+            this.rect.bottom = SCREEN_HEIGHT - 50;
+            this.vel_y = 0;
+            this.is_grounded = true;
+        }
+        if (this.rect.left < 0) this.rect.left = 0;
+        if (this.rect.right > SCREEN_WIDTH) this.rect.right = SCREEN_WIDTH;
+    }
+
+    tick_cooldown_counters() {
+        if (this.attack_cooldown > 0) this.attack_cooldown -= 1;
+        if (this.special_cooldown > 0) this.special_cooldown -= 1;
+        if (this.is_attacking) {
+            this.attack_duration -= 1;
+            if (this.attack_duration <= 0) { this.is_attacking = false; this.attack_rect = null; }
+        }
+    }
+
+    attack() {
+        this.is_attacking = true;
+        this.attack_duration = 10;
+        this.attack_cooldown = 30;
+
+        if (this.attack_type === "SABER_SWING") {
+            const aw = 75, ah = 55;
+            if (this.facing_right) this.attack_rect = new Rect(this.rect.right - 5, this.rect.y + 25, aw, ah);
+            else this.attack_rect = new Rect(this.rect.left - aw + 5, this.rect.y + 25, aw, ah);
+        } else if (this.attack_type === "GUNSHOT") {
+            const aw = 55, ah = 30;
+            if (this.facing_right) this.attack_rect = new Rect(this.rect.right, this.rect.y + 40, aw, ah);
+            else this.attack_rect = new Rect(this.rect.left - aw, this.rect.y + 40, aw, ah);
+        } else if (this.attack_type === "FORCE_LIGHTNING") {
+            const aw = 65, ah = 70;
+            if (this.facing_right) this.attack_rect = new Rect(this.rect.right, this.rect.y + 20, aw, ah);
+            else this.attack_rect = new Rect(this.rect.left - aw, this.rect.y + 20, aw, ah);
+        }
+    }
+
+    apply_force_choke() {
+        this.force_choked = true;
+        this.force_choke_timer = 45;
+        this.force_choke_velocity = 0;
+    }
+
+    use_special(projectiles_list) {
+        if (this.special_cooldown > 0) return;
+        this.special_cooldown = 90;
+        const direction = this.facing_right ? 1 : -1;
+        const spawn_x = this.facing_right ? this.rect.right : this.rect.left - 40;
+        const p = new SpecialProjectile(spawn_x, this.rect.y + 30, direction, this.color, this.ability, this);
+        projectiles_list.push(p);
+    }
+
+    draw() {
+        const x = this.rect.x, y = this.rect.y;
+
+        if (this.name === "OBI-WAN") {
+            drawRect(BROWN, x + 16, y, 28, 7);
+            drawRect(BROWN, x + 12, y + 6, 8, 12);
+            drawRect(BEIGE, x + 18, y + 7, 24, 22);
+            drawRect(BEIGE, x + 14, y + 13, 4, 8);
+            drawRect(BEIGE, x + 42, y + 13, 4, 8);
+            drawRect(BROWN, x + 18, y + 7, 24, 4);
+            drawRect(BLACK, x + 22, y + 15, 3, 3);
+            drawRect(BLACK, x + 35, y + 15, 3, 3);
+            drawRect(BROWN, x + 27, y + 19, 7, 3);
+            drawRect(BROWN, x + 22, y + 22, 16, 7);
+            drawRect(BROWN, x + 26, y + 27, 8, 4);
+            drawRect(BROWN, x + 8, y + 31, 44, 45);
+            drawRect(BEIGE, x + 17, y + 31, 26, 45);
+            drawRect(WHITE, x + 22, y + 34, 16, 42);
+            drawRect(BROWN, x + 27, y + 34, 6, 42);
+            drawRect(BROWN, x + 10, y + 72, 40, 8);
+            drawRect(GRAY, x + 27, y + 72, 8, 8);
+            drawRect(BROWN, x + 2, y + 34, 12, 42);
+            drawRect(BROWN, x + 46, y + 34, 12, 42);
+            drawRect(BEIGE, x + 2, y + 73, 10, 8);
+            drawRect(BEIGE, x + 48, y + 73, 10, 8);
+            drawRect(BROWN, x + 12, y + 80, 15, 30);
+            drawRect(BROWN, x + 33, y + 80, 15, 30);
+            drawRect(BLACK, x + 10, y + 103, 18, 7);
+            drawRect(BLACK, x + 32, y + 103, 18, 7);
+
+        } else if (this.name === "LUKE") {
+            drawRect(BROWN, x + 16, y, 28, 7);
+            drawRect(BROWN, x + 12, y + 5, 8, 13);
+            drawRect(BEIGE, x + 18, y + 6, 24, 23);
+            drawRect(BEIGE, x + 14, y + 13, 4, 8);
+            drawRect(BEIGE, x + 42, y + 13, 4, 8);
+            drawRect(BROWN, x + 18, y + 6, 24, 4);
+            drawRect(BLACK, x + 22, y + 15, 3, 3);
+            drawRect(BLACK, x + 35, y + 15, 3, 3);
+            drawRect(BROWN, x + 28, y + 18, 5, 3);
+            drawRect(BROWN, x + 26, y + 23, 10, 3);
+            drawRect(WHITE, x + 10, y + 29, 40, 47);
+            drawRect(GRAY, x + 15, y + 32, 30, 44);
+            drawRect(BLACK, x + 27, y + 32, 6, 42);
+            drawRect(BROWN, x + 10, y + 72, 40, 8);
+            drawRect(GRAY, x + 27, y + 72, 8, 8);
+            drawRect(WHITE, x + 2, y + 34, 12, 42);
+            drawRect(WHITE, x + 46, y + 34, 12, 42);
+            drawRect(BEIGE, x + 2, y + 73, 10, 8);
+            drawRect(BEIGE, x + 48, y + 73, 10, 8);
+            drawRect(GRAY, x + 12, y + 80, 15, 30);
+            drawRect(GRAY, x + 33, y + 80, 15, 30);
+            drawRect(BROWN, x + 10, y + 103, 18, 7);
+            drawRect(BROWN, x + 32, y + 103, 18, 7);
+
+        } else if (this.name === "HAN SOLO") {
+            drawRect(BEIGE, x + 18, y + 2, 24, 24);
+            drawRect(BROWN, x + 14, y - 2, 32, 8);
+            drawRect(BROWN, x + 10, y + 4, 10, 14);
+            drawRect(BROWN, x + 40, y + 4, 8, 12);
+            drawRect(BEIGE, x + 40, y + 12, 5, 8);
+            drawRect(BEIGE, x + 15, y + 12, 5, 8);
+            drawRect(BLACK, x + 34, y + 12, 4, 4);
+            drawRect(BLACK, x + 23, y + 12, 4, 4);
+            drawRect(WHITE, x + 14, y + 25, 32, 38);
+            drawRect(BEIGE, x + 25, y + 25, 10, 8);
+            drawRect(BLACK, x + 10, y + 28, 9, 35);
+            drawRect(BLACK, x + 41, y + 28, 9, 35);
+            drawRect(BLACK, x + 19, y + 34, 5, 29);
+            drawRect(BLACK, x + 35, y + 34, 6, 29);
+            drawRect(WHITE, x + 4, y + 32, 10, 22);
+            drawRect(BEIGE, x + 2, y + 50, 12, 10);
+            drawRect(WHITE, x + 46, y + 32, 10, 22);
+            drawRect(BEIGE, x + 50, y + 50, 12, 10);
+            drawRect(BROWN, x + 12, y + 61, 36, 7);
+            drawRect(GRAY, x + 27, y + 61, 7, 7);
+            drawRect(BLACK, x + 14, y + 68, 14, 30);
+            drawRect(BLACK, x + 34, y + 68, 14, 30);
+            drawRect(GRAY, x + 17, y + 70, 7, 25);
+            drawRect(GRAY, x + 37, y + 70, 7, 25);
+            drawRect(BLACK, x + 10, y + 94, 18, 12);
+            drawRect(BLACK, x + 34, y + 94, 18, 12);
+
+        } else if (this.name === "VADER") {
+            drawRect(BLACK, x + 16, y + 8, 28, 5);
+            drawRect(BLACK, x + 12, y + 12, 36, 8);
+            drawRect(BLACK, x + 9, y + 19, 42, 12);
+            drawRect(BLACK, x + 7, y + 28, 46, 13);
+            drawRect('rgb(45,45,50)', x + 17, y + 8, 7, 5);
+            drawRect('rgb(45,45,50)', x + 36, y + 8, 7, 5);
+            drawRect(GRAY, x + 12, y + 15, 5, 7);
+            drawRect(GRAY, x + 43, y + 15, 5, 7);
+            drawRect(BLACK, x + 15, y + 27, 30, 22);
+            drawRect(GRAY, x + 19, y + 27, 22, 8);
+            drawRect(BLACK, x + 19, y + 29, 9, 5);
+            drawRect(BLACK, x + 32, y + 29, 9, 5);
+            drawRect(VADER_RED, x + 21, y + 31, 6, 2);
+            drawRect(VADER_RED, x + 34, y + 31, 6, 2);
+            drawRect(BLACK, x + 22, y + 35, 16, 5);
+            drawRect(BLACK, x + 19, y + 40, 22, 7);
+            drawRect(GRAY, x + 24, y + 39, 12, 3);
+            drawRect(GRAY, x + 27, y + 43, 6, 3);
+            drawRect(BLACK, x + 21, y + 46, 18, 8);
+            drawRect(BLACK, x + 7, y + 48, 46, 12);
+            drawRect(BLACK, x + 3, y + 56, 54, 25);
+            drawRect(BLACK, x + 7, y + 75, 46, 10);
+            drawRect('rgb(35,35,40)', x + 7, y + 59, 5, 22);
+            drawRect('rgb(35,35,40)', x + 48, y + 59, 5, 22);
+            drawRect(BLACK, x + 14, y + 52, 32, 31);
+            drawRect('rgb(40,40,45)', x + 18, y + 55, 24, 25);
+            drawRect(BLACK, x + 20, y + 57, 20, 17);
+            drawRect(VADER_RED, x + 23, y + 60, 5, 4);
+            drawRect(LIGHTNING_YELLOW, x + 32, y + 60, 5, 4);
+            drawRect(VADER_RED, x + 23, y + 67, 5, 3);
+            drawRect(GRAY, x + 32, y + 67, 5, 3);
+            drawRect(BLACK, x + 1, y + 51, 14, 31);
+            drawRect(BLACK, x + 45, y + 51, 14, 31);
+            drawRect('rgb(40,40,45)', x + 4, y + 56, 8, 17);
+            drawRect('rgb(40,40,45)', x + 48, y + 56, 8, 17);
+            drawRect(BLACK, x + 2, y + 73, 11, 10);
+            drawRect(BLACK, x + 47, y + 73, 11, 10);
+            drawRect(BLACK, x + 9, y + 78, 42, 9);
+            drawRect(GRAY, x + 17, y + 80, 8, 5);
+            drawRect(GRAY, x + 35, y + 80, 8, 5);
+            drawRect(BLACK, x + 12, y + 86, 15, 24);
+            drawRect(BLACK, x + 33, y + 86, 15, 24);
+            drawRect('rgb(35,35,40)', x + 15, y + 88, 5, 18);
+            drawRect('rgb(35,35,40)', x + 36, y + 88, 5, 18);
+            drawRect(BLACK, x + 9, y + 103, 19, 7);
+            drawRect(BLACK, x + 32, y + 103, 19, 7);
+
+        } else if (this.name === "MAUL") {
+            drawRect(BEIGE, x + 16, y - 4, 6, 8);
+            drawRect(BEIGE, x + 24, y - 7, 6, 11);
+            drawRect(BEIGE, x + 32, y - 7, 6, 11);
+            drawRect(BEIGE, x + 40, y - 4, 6, 8);
+            drawRect(VADER_RED, x + 14, y + 2, 32, 29);
+            drawRect(VADER_RED, x + 10, y + 10, 40, 15);
+            drawRect(BLACK, x + 18, y + 5, 7, 8);
+            drawRect(BLACK, x + 33, y + 5, 7, 8);
+            drawRect(BLACK, x + 13, y + 14, 9, 5);
+            drawRect(BLACK, x + 39, y + 14, 9, 5);
+            drawRect(BLACK, x + 22, y + 17, 5, 8);
+            drawRect(BLACK, x + 33, y + 17, 5, 8);
+            drawRect(BLACK, x + 27, y + 12, 6, 5);
+            drawRect(BLACK, x + 25, y + 24, 10, 5);
+            drawRect(BEIGE, x + 22, y + 13, 5, 3);
+            drawRect(BEIGE, x + 33, y + 13, 5, 3);
+            drawRect(BLACK, x + 22, y + 29, 16, 7);
+            drawRect(BLACK, x + 8, y + 34, 44, 48);
+            drawRect(GRAY, x + 14, y + 38, 32, 40);
+            drawRect(BLACK, x + 27, y + 38, 6, 40);
+            drawRect(GRAY, x + 15, y + 50, 5, 27);
+            drawRect(GRAY, x + 40, y + 50, 5, 27);
+            drawRect(BLACK, x + 1, y + 36, 13, 44);
+            drawRect(BLACK, x + 46, y + 36, 13, 44);
+            drawRect(GRAY, x + 4, y + 42, 7, 22);
+            drawRect(GRAY, x + 49, y + 42, 7, 22);
+            drawRect(VADER_RED, x + 2, y + 74, 10, 9);
+            drawRect(VADER_RED, x + 48, y + 74, 10, 9);
+            drawRect(BLACK, x + 9, y + 76, 42, 9);
+            drawRect(GRAY, x + 25, y + 78, 10, 5);
+            drawRect(BLACK, x + 12, y + 84, 15, 26);
+            drawRect(BLACK, x + 33, y + 84, 15, 26);
+            drawRect(BLACK, x + 9, y + 103, 19, 7);
+            drawRect(BLACK, x + 32, y + 103, 19, 7);
+
+        } else if (this.name === "DOOKU") {
+            drawRect(WHITE, x + 17, y, 26, 6);
+            drawRect(WHITE, x + 13, y + 4, 8, 12);
+            drawRect(WHITE, x + 41, y + 4, 8, 12);
+            drawRect(WHITE, x + 20, y + 5, 22, 5);
+            drawRect(BEIGE, x + 19, y + 9, 22, 23);
+            drawRect(BEIGE, x + 15, y + 15, 5, 8);
+            drawRect(BEIGE, x + 41, y + 15, 5, 8);
+            drawRect(WHITE, x + 20, y + 9, 20, 4);
+            drawRect(BLACK, x + 23, y + 16, 3, 3);
+            drawRect(BLACK, x + 34, y + 16, 3, 3);
+            drawRect(BROWN, x + 29, y + 19, 5, 3);
+            drawRect(WHITE, x + 23, y + 22, 7, 4);
+            drawRect(WHITE, x + 30, y + 22, 7, 4);
+            drawRect(WHITE, x + 25, y + 25, 10, 5);
+            drawRect(WHITE, x + 26, y + 29, 8, 5);
+            drawRect(WHITE, x + 27, y + 33, 6, 4);
+            drawRect(BEIGE, x + 24, y + 34, 12, 7);
+            drawRect(BROWN, x + 9, y + 37, 42, 10);
+            drawRect(BROWN, x + 5, y + 43, 50, 37);
+            drawRect(BLACK, x + 5, y + 43, 7, 38);
+            drawRect(BLACK, x + 48, y + 43, 7, 38);
+            drawRect(BLACK, x + 16, y + 40, 28, 40);
+            drawRect(GRAY, x + 21, y + 42, 18, 35);
+            drawRect(BLACK, x + 27, y + 42, 6, 35);
+            drawRect(BROWN, x + 1, y + 42, 13, 39);
+            drawRect(BROWN, x + 46, y + 42, 13, 39);
+            drawRect(BLACK, x + 1, y + 60, 6, 20);
+            drawRect(BLACK, x + 53, y + 60, 6, 20);
+            drawRect(BEIGE, x + 2, y + 74, 10, 9);
+            drawRect(BEIGE, x + 48, y + 74, 10, 9);
+            drawRect(BLACK, x + 10, y + 76, 40, 9);
+            drawRect(GRAY, x + 25, y + 78, 10, 5);
+            drawRect(BLACK, x + 13, y + 84, 14, 26);
+            drawRect(BLACK, x + 33, y + 84, 14, 26);
+            drawRect(BROWN, x + 10, y + 103, 18, 7);
+            drawRect(BROWN, x + 32, y + 103, 18, 7);
+
+        } else if (this.name === "PALPATINE") {
+            drawRect(BLACK, x + 16, y, 28, 5);
+            drawRect(BLACK, x + 11, y + 4, 38, 9);
+            drawRect(BLACK, x + 7, y + 11, 46, 15);
+            drawRect(BLACK, x + 3, y + 20, 54, 18);
+            drawRect('rgb(25,25,30)', x + 15, y + 15, 30, 23);
+            drawRect(BEIGE, x + 19, y + 17, 22, 19);
+            drawRect(GRAY, x + 19, y + 26, 6, 7);
+            drawRect(GRAY, x + 35, y + 26, 6, 7);
+            drawRect(GRAY, x + 22, y + 18, 16, 4);
+            drawRect(LIGHTNING_YELLOW, x + 22, y + 23, 6, 3);
+            drawRect(LIGHTNING_YELLOW, x + 34, y + 23, 6, 3);
+            drawRect(GRAY, x + 29, y + 24, 4, 6);
+            drawRect(BLACK, x + 24, y + 31, 16, 4);
+            drawRect(GRAY, x + 27, y + 31, 10, 2);
+            drawRect(BLACK, x + 22, y + 35, 16, 8);
+            drawRect(BLACK, x + 9, y + 38, 42, 43);
+            drawRect(BLACK, x + 5, y + 45, 50, 36);
+            drawRect('rgb(35,35,40)', x + 17, y + 43, 26, 36);
+            drawRect(BLACK, x + 27, y + 43, 6, 37);
+            drawRect('rgb(45,45,50)', x + 18, y + 50, 5, 27);
+            drawRect('rgb(45,45,50)', x + 37, y + 50, 5, 27);
+            drawRect(BLACK, x + 1, y + 42, 14, 42);
+            drawRect(BLACK, x + 45, y + 42, 14, 42);
+            drawRect('rgb(35,35,40)', x + 4, y + 48, 5, 27);
+            drawRect('rgb(35,35,40)', x + 50, y + 48, 5, 27);
+            drawRect(BEIGE, x + 2, y + 74, 10, 10);
+            drawRect(BEIGE, x + 48, y + 74, 10, 10);
+            drawRect(BLACK, x + 9, y + 77, 42, 8);
+            drawRect(GRAY, x + 26, y + 78, 9, 5);
+            drawRect(BLACK, x + 11, y + 84, 17, 26);
+            drawRect(BLACK, x + 32, y + 84, 17, 26);
+            drawRect('rgb(40,40,45)', x + 14, y + 87, 5, 19);
+            drawRect('rgb(40,40,45)', x + 41, y + 87, 5, 19);
+            drawRect(BLACK, x + 9, y + 103, 20, 7);
+            drawRect(BLACK, x + 31, y + 103, 20, 7);
+        }
+
+        // Weapon
+        const direction = this.facing_right ? 1 : -1;
+
+        if (this.weapon === "BLUE_SABER") drawLightsaber(x + 30, y + 70, direction, LUKE_BLUE);
+        else if (this.weapon === "GREEN_SABER") drawLightsaber(x + 30, y + 70, direction, SABER_GREEN);
+        else if (this.weapon === "RED_SABER") drawLightsaber(x + 30, y + 70, direction, VADER_RED);
+        else if (this.weapon === "DOUBLE_SABER") drawLightsaber(x + 30, y + 70, direction, MAUL_RED, 55, true);
+        else if (this.weapon === "BLASTER") {
+            if (this.facing_right) {
+                drawRect(GRAY, x + 42, y + 38, 22, 7);
+                drawRect(BLACK, x + 50, y + 43, 7, 10);
+            } else {
+                drawRect(GRAY, x - 4, y + 38, 22, 7);
+                drawRect(BLACK, x + 3, y + 43, 7, 10);
+            }
+        }
+
+        // Close range strike visual overlay
+        if (this.is_attacking && this.attack_rect) {
+            if (this.attack_type === "SABER_SWING") {
+                let swing_color;
+                if (this.weapon === "BLUE_SABER") swing_color = LUKE_BLUE;
+                else if (this.weapon === "GREEN_SABER") swing_color = SABER_GREEN;
+                else if (this.weapon === "RED_SABER") swing_color = VADER_RED;
+                else if (this.weapon === "DOUBLE_SABER") swing_color = MAUL_RED;
+                else swing_color = this.color;
+
+                if (this.facing_right) {
+                    drawLine(swing_color, this.rect.right, this.rect.y + 35, this.rect.right + 45, this.rect.y + 5, 7);
+                    drawLine(WHITE, this.rect.right + 5, this.rect.y + 32, this.rect.right + 40, this.rect.y + 8, 2);
+                } else {
+                    drawLine(swing_color, this.rect.left, this.rect.y + 35, this.rect.left - 45, this.rect.y + 5, 7);
+                    drawLine(WHITE, this.rect.left - 5, this.rect.y + 32, this.rect.left - 40, this.rect.y + 8, 2);
+                }
+            } else if (this.attack_type === "GUNSHOT") {
+                const muzzle_x = this.facing_right ? this.rect.right + 8 : this.rect.left - 8;
+                drawRect(LIGHTNING_YELLOW, muzzle_x - 5, this.rect.y + 40, 12, 8);
+                drawRect(WHITE, muzzle_x - 2, this.rect.y + 42, 6, 4);
+            } else if (this.attack_type === "FORCE_LIGHTNING") {
+                const start_x = this.facing_right ? this.rect.right : this.rect.left;
+                const end_x = this.facing_right ? this.rect.right + 55 : this.rect.left - 55;
+                drawLine(LIGHTNING_YELLOW, start_x, this.rect.y + 45, end_x, this.rect.y + 25, 5);
+                drawLine(WHITE, start_x, this.rect.y + 45, end_x, this.rect.y + 25, 2);
+            }
+        }
+    }
+}
+
+// ---------------- Backgrounds ----------------
+function drawMustafarBackground() {
+    drawRect('rgb(28,10,12)', 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+    drawRect('rgb(75,20,12)', 0, 70, SCREEN_WIDTH, 250);
+    drawRect('rgb(110,30,12)', 0, 230, SCREEN_WIDTH, 120);
+
+    drawPolygon('rgb(35,15,15)', [[0,300],[100,220],[180,290],[280,190],[380,285],[500,210],[610,285],[720,180],[830,280],[930,210],[1000,270],[1000,360],[0,360]]);
+    drawPolygon('rgb(18,12,14)', [[70,300],[145,190],[220,300]]);
+    drawPolygon('rgb(18,12,14)', [[420,300],[500,170],[580,300]]);
+    drawPolygon('rgb(18,12,14)', [[760,300],[835,185],[910,300]]);
+    drawPolygon('rgb(180,45,10)', [[475,205],[500,175],[525,205]]);
+
+    drawPolygon('rgb(210,55,8)', [[130,350],[210,350],[300,600],[190,600]]);
+    drawPolygon('rgb(245,90,10)', [[160,350],[190,350],[250,600],[215,600]]);
+    drawPolygon('rgb(210,55,8)', [[690,350],[760,350],[850,600],[720,600]]);
+    drawPolygon('rgb(245,90,10)', [[720,350],[745,350],[805,600],[770,600]]);
+
+    drawPolygon('rgb(20,16,18)', [[0,370],[100,350],[200,390],[300,360],[400,400],[500,350],[600,395],[700,355],[800,390],[900,350],[1000,380],[1000,600],[0,600]]);
+
+    const lava_color = 'rgb(220,60,10)';
+    drawLine(lava_color, 80, 600, 140, 450, 5);
+    drawLine(lava_color, 140, 450, 120, 390, 4);
+    drawLine(lava_color, 400, 600, 460, 470, 5);
+    drawLine(lava_color, 460, 470, 440, 400, 4);
+    drawLine(lava_color, 900, 600, 850, 470, 5);
+    drawLine(lava_color, 850, 470, 870, 395, 4);
+
+    drawRect('rgb(180,45,8)', 250, 440, 70, 12);
+    drawRect('rgb(240,80,8)', 265, 444, 40, 5);
+    drawRect('rgb(180,45,8)', 620, 420, 90, 12);
+    drawRect('rgb(240,80,8)', 640, 424, 50, 5);
+
+    const ash_particles = [[80,150,3],[150,100,2],[250,180,2],[340,120,3],[430,90,2],[550,140,3],[650,100,2],[760,150,3],[870,90,2],[940,160,3]];
+    for (const [ax, ay, size] of ash_particles) drawRect('rgb(90,70,65)', ax, ay, size, size);
+}
+
+function drawHud(p1, p2) {
+    drawRect(FLOOR_COLOR, 0, SCREEN_HEIGHT - 50, SCREEN_WIDTH, 50);
+    drawRect(GRAY, 0, SCREEN_HEIGHT - 50, SCREEN_WIDTH, 4);
+
+    drawRect('rgb(100,0,0)', 50, 30, 350, 25);
+    if (p1.health > 0) {
+        const p1_ratio = 350 / p1.max_health;
+        drawRect(HEALTH_GREEN, 50, 30, p1.health * p1_ratio, 25);
+    }
+    drawPixelText(p1.name, 50, 5, 2, p1.color);
+
+    drawRect('rgb(100,0,0)', SCREEN_WIDTH - 400, 30, 350, 25);
+    if (p2.health > 0) {
+        const p2_ratio = 350 / p2.max_health;
+        drawRect(HEALTH_GREEN, SCREEN_WIDTH - 400, 30, p2.health * p2_ratio, 25);
+    }
+    const p2_lbl = p2.control_type === "cpu" ? `${p2.name} (CPU)` : p2.name;
+    drawPixelText(p2_lbl, SCREEN_WIDTH - 250, 5, 2, p2.color);
+}
+
+// ---------------- Music ----------------
+const menuMusic = new Audio('Music/menu_music.mp3');
+const battleMusic = new Audio('Music/battle_music.mp3');
+menuMusic.loop = true;
+battleMusic.loop = true;
+menuMusic.volume = 0.5;
+battleMusic.volume = 0.5;
+
+function playMusic(track) {
+    menuMusic.pause();
+    battleMusic.pause();
+    try {
+        track.currentTime = 15.0;
+    } catch (e) { /* not loaded yet */ }
+    track.play().catch(() => { /* blocked until user interacts; retried on next keypress */ });
+}
+
+// ---------------- Core game state ----------------
+let game_mode = "MENU";
+let opponent_mode = "CPU";
+let selected_map = 0;
+let p1_selected_idx = 0;
+let p2_selected_idx = 3;
+
+let p1_fighter = null;
+let p2_fighter = null;
+let projectiles = [];
+
+window.addEventListener('keydown', (e) => {
+    if (CONTROL_KEYS.has(e.key)) e.preventDefault();
+    const key = normKey(e);
+    keysDown.add(key);
+    handleKeyDown(key);
+});
+
+window.addEventListener('keyup', (e) => {
+    const key = normKey(e);
+    keysDown.delete(key);
+});
+
+function handleKeyDown(key) {
+    if (game_mode === "MENU") {
+        if (key === '1') { opponent_mode = "CPU"; game_mode = "CHAR_SELECT"; }
+        else if (key === '2') { opponent_mode = "PLAYER2"; game_mode = "CHAR_SELECT"; }
+    } else if (game_mode === "CHAR_SELECT") {
+        if (key === 'ArrowLeft') p1_selected_idx = (p1_selected_idx - 1 + CHARACTERS.length) % CHARACTERS.length;
+        else if (key === 'ArrowRight') p1_selected_idx = (p1_selected_idx + 1) % CHARACTERS.length;
+
+        if (opponent_mode === "PLAYER2") {
+            if (key === 'a') p2_selected_idx = (p2_selected_idx - 1 + CHARACTERS.length) % CHARACTERS.length;
+            else if (key === 'd') p2_selected_idx = (p2_selected_idx + 1) % CHARACTERS.length;
+        } else {
+            p2_selected_idx = Math.floor(Math.random() * CHARACTERS.length);
+            while (p2_selected_idx === p1_selected_idx) {
+                p2_selected_idx = Math.floor(Math.random() * CHARACTERS.length);
+            }
+        }
+
+        if (key === 'Enter') game_mode = "MAP_SELECT";
+    } else if (game_mode === "MAP_SELECT") {
+        if (key === 'ArrowLeft') selected_map = 0;
+        else if (key === 'ArrowRight') selected_map = 1;
+        else if (key === 'Enter') {
+            p1_fighter = new Fighter(200, 400, CHARACTERS[p1_selected_idx], "player_1");
+            const p2_ctrl = opponent_mode === "CPU" ? "cpu" : "player_2";
+            p2_fighter = new Fighter(740, 400, CHARACTERS[p2_selected_idx], p2_ctrl);
+            projectiles = [];
+            playMusic(battleMusic);
+            game_mode = "PLAYING";
+        }
+    } else if (game_mode === "GAMEOVER") {
+        if (key === 'r') {
+            p1_fighter = null;
+            p2_fighter = null;
+            projectiles = [];
+            playMusic(menuMusic);
+            game_mode = "MENU";
+        }
+    }
+}
+
+function drawCharSelect() {
+    drawPixelText("SELECT YOUR FIGHTER", 260, 40, 4, WHITE);
+
+    for (let i = 0; i < CHARACTERS.length; i++) {
+        const char = CHARACTERS[i];
+        const row = Math.floor(i / 3), col = i % 3;
+        const bx = 120 + col * 270, by = 130 + row * 190;
+
+        drawRect(FLOOR_COLOR, bx, by, 220, 160);
+        drawPixelText(char.name, bx + 15, by + 15, 2, char.color);
+        drawPixelText("POWER:", bx + 15, by + 110, 1, GRAY);
+        drawPixelText(char.ability, bx + 15, by + 130, 1, WHITE);
+
+        if (i === p1_selected_idx) {
+            drawRect(LUKE_BLUE, bx - 4, by - 4, 228, 168, 4);
+            drawPixelText("(P1)", bx + 160, by + 15, 2, LUKE_BLUE);
+        }
+        if (i === p2_selected_idx && opponent_mode === "PLAYER2") {
+            drawRect(VADER_RED, bx - 8, by - 8, 236, 176, 3);
+            drawPixelText("(P2)", bx + 160, by + 40, 2, VADER_RED);
+            drawPixelText("P1: USE LEFT/RIGHT ARROWS TO MOVE CURSOR", 180, 510, 2, LUKE_BLUE);
+        }
+    }
+    if (opponent_mode === "PLAYER2") {
+        drawPixelText("P2: USE (A) / (D) KEYS TO CHOOSE FIGHTER", 180, 535, 2, VADER_RED);
+    }
+    drawPixelText("PRESS [ENTER] TO COMMENCE BATTLE", 270, 565, 2, HEALTH_GREEN);
+}
+
+function drawMapSelect() {
+    drawPixelText("CHOOSE YOUR BATTLEFIELD", 245, 45, 4, WHITE);
+
+    drawRect(BG_MID, 100, 150, 350, 220);
+    drawRect(BG_LIGHT, 100, 150, 350, 8);
+    for (let x = 120; x < 450; x += 80) drawRect(BG_LIGHT, x, 210, 45, 100);
+    for (const [sx, sy, size] of STARS) {
+        if (sx >= 100 && sx <= 450 && sy >= 150 && sy <= 370) drawRect(WHITE, sx, sy, size, size);
+    }
+    drawPixelText("ORIGINAL MAP", 180, 390, 2, LUKE_BLUE);
+
+    drawRect('rgb(28,10,12)', 550, 150, 350, 220);
+    drawRect('rgb(100,25,12)', 550, 220, 350, 150);
+    drawPolygon('rgb(25,12,14)', [[550,330],[620,250],[690,330],[760,235],[830,330],[900,255],[900,370],[550,370]]);
+    drawPolygon('rgb(220,60,8)', [[620,370],[680,370],[720,370],[800,370],[850,370],[900,370]]);
+    drawPixelText("MUSTAFAR", 670, 390, 2, VADER_RED);
+
+    if (selected_map === 0) drawRect(LUKE_BLUE, 90, 140, 370, 260, 5);
+    else drawRect(VADER_RED, 540, 140, 370, 260, 5);
+
+    drawPixelText("USE LEFT / RIGHT TO CHOOSE", 275, 470, 2, GRAY);
+    drawPixelText("PRESS [ENTER] TO BATTLE", 300, 520, 2, HEALTH_GREEN);
+}
+
+// ---------------- Main loop ----------------
+function gameLoop() {
+    requestAnimationFrame(gameLoop);
+
+    if (selected_map === 0) {
+        drawRect(BG_DARK, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+        drawRect(BG_MID, 0, 70, SCREEN_WIDTH, 230);
+        drawRect(BG_LIGHT, 0, 70, SCREEN_WIDTH, 8);
+        for (let x = 40; x < SCREEN_WIDTH; x += 160) {
+            drawRect(BG_MID, x, 120, 80, 180);
+            drawRect(BG_LIGHT, x + 15, 140, 50, 8);
+            drawRect(BG_LIGHT, x + 15, 170, 50, 8);
+            drawRect(BG_LIGHT, x + 15, 200, 50, 8);
+        }
+        for (const [sx, sy, size] of STARS) drawRect(WHITE, sx, sy, size, size);
+    } else {
+        drawMustafarBackground();
+    }
+
+    if (game_mode === "MENU") {
+        drawPixelText("STAR WARS: RETRO DUEL", 200, 80, 5, WHITE);
+        drawRect(LUKE_BLUE, 150, 200, 700, 65);
+        drawPixelText("PRESS (1) FOR SINGLE PLAYER (VS CPU)", 180, 222, 3, WHITE);
+        drawRect(VADER_RED, 150, 300, 700, 65);
+        drawPixelText("PRESS (2) FOR LOCAL 2 PLAYER", 240, 322, 3, WHITE);
+        drawRect(GRAY, 150, 410, 700, 120, 2);
+        drawPixelText("CHOOSE MODE TO ENTER CHARACTER SELECTION", 210, 455, 2, GRAY);
+
+    } else if (game_mode === "CHAR_SELECT") {
+        drawCharSelect();
+
+    } else if (game_mode === "MAP_SELECT") {
+        drawMapSelect();
+
+    } else if (game_mode === "PLAYING") {
+        p1_fighter.move(p2_fighter.rect, projectiles);
+        p2_fighter.move(p1_fighter.rect, projectiles);
+
+        for (const p of projectiles) {
+            p.update();
+
+            if (p.owner === p1_fighter) {
+                if (p.rect.colliderect(p2_fighter.rect)) {
+                    if (p.p_type === "FORCE CHOKE") {
+                        p2_fighter.apply_force_choke();
+                        p2_fighter.force_choke_velocity = p1_fighter.facing_right ? 2 : -2;
+                        p2_fighter.take_damage(20);
+                    } else {
+                        p2_fighter.take_damage(20);
+                    }
+                    p.active = false;
+                }
+            } else if (p.owner === p2_fighter) {
+                if (p.rect.colliderect(p1_fighter.rect)) {
+                    if (p.p_type === "FORCE CHOKE") {
+                        p1_fighter.apply_force_choke();
+                        p1_fighter.force_choke_velocity = p2_fighter.facing_right ? 2 : -2;
+                        p1_fighter.take_damage(20);
+                    } else {
+                        p1_fighter.take_damage(20);
+                    }
+                    p.active = false;
+                }
+            }
+        }
+        projectiles = projectiles.filter(p => p.active);
+
+        if (p1_fighter.is_attacking && p1_fighter.attack_rect && p1_fighter.attack_rect.colliderect(p2_fighter.rect)) {
+            p2_fighter.take_damage(10, true);
+            p1_fighter.is_attacking = false;
+        }
+        if (p2_fighter.is_attacking && p2_fighter.attack_rect && p2_fighter.attack_rect.colliderect(p1_fighter.rect)) {
+            p1_fighter.take_damage(10, true);
+            p2_fighter.is_attacking = false;
+        }
+
+        for (const p of projectiles) p.draw();
+        p1_fighter.draw();
+        p2_fighter.draw();
+        drawHud(p1_fighter, p2_fighter);
+
+        const p1_cooldown_lbl = p1_fighter.special_cooldown === 0 ? "READY" : "CHARGING";
+        drawPixelText(`SPECIAL (M): ${p1_cooldown_lbl}`, 50, 60, 1, GRAY);
+        if (p2_fighter.control_type === "player_2") {
+            const p2_cooldown_lbl = p2_fighter.special_cooldown === 0 ? "READY" : "CHARGING";
+            drawPixelText(`SPECIAL (G): ${p2_cooldown_lbl}`, SCREEN_WIDTH - 240, 60, 1, GRAY);
+        }
+
+        if (p1_fighter.health <= 0 || p2_fighter.health <= 0) game_mode = "GAMEOVER";
+
+    } else if (game_mode === "GAMEOVER") {
+        p1_fighter.draw();
+        p2_fighter.draw();
+        drawHud(p1_fighter, p2_fighter);
+
+        drawRect(BLACK, 0, SCREEN_HEIGHT / 2 - 60, SCREEN_WIDTH, 120);
+        drawRect(WHITE, 0, SCREEN_HEIGHT / 2 - 60, SCREEN_WIDTH, 120, 4);
+
+        if (p1_fighter.health <= 0) {
+            drawPixelText(`${p2_fighter.name} WINS!`, 320, SCREEN_HEIGHT / 2 - 35, 5, VADER_RED);
+        } else {
+            drawPixelText(`${p1_fighter.name} WINS!`, 320, SCREEN_HEIGHT / 2 - 35, 5, LUKE_BLUE);
+        }
+        drawPixelText("PRESS [R] TO RETURN TO MAIN MENU", 310, SCREEN_HEIGHT / 2 + 25, 2, GRAY);
+    }
+}
+
+playMusic(menuMusic);
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
