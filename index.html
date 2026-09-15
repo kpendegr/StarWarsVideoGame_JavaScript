@@ -821,6 +821,32 @@ let p2_selected_idx = 3;
 let p1_fighter = null;
 let p2_fighter = null;
 let projectiles = [];
+let gameFocused = false;
+
+canvas.addEventListener('pointerdown', () => {
+    const wasUnfocused = !gameFocused;
+    gameFocused = true;
+    canvas.focus();
+
+    // Resume the current music only when the player clicks back into the game.
+    if (wasUnfocused) {
+        const track = game_mode === "GAME" ? battleMusic : menuMusic;
+        track.play().catch(() => {});
+    }
+});
+
+// Clicking or switching away from the browser window pauses the game.
+function unfocusGame() {
+    gameFocused = false;
+    keysDown.clear();
+    menuMusic.pause();
+    battleMusic.pause();
+}
+
+window.addEventListener('blur', unfocusGame);
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) unfocusGame();
+});
 
 canvas.addEventListener('click', (e) => {
     const rect = canvas.getBoundingClientRect();
@@ -832,6 +858,7 @@ canvas.addEventListener('click', (e) => {
 });
 
 window.addEventListener('keydown', (e) => {
+    if (!gameFocused) return;
     if (CONTROL_KEYS.has(e.key)) e.preventDefault();
     const key = normKey(e);
     keysDown.add(key);
@@ -839,6 +866,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 window.addEventListener('keyup', (e) => {
+    if (!gameFocused) return;
     const key = normKey(e);
     keysDown.delete(key);
 });
@@ -954,6 +982,11 @@ function drawMapSelect() {
 // ---------------- Main loop ----------------
 function gameLoop() {
     requestAnimationFrame(gameLoop);
+
+    if (!gameFocused) {
+        keysDown.clear();
+        return;
+    }
 
     if (selected_map === 0) {
         drawRect(BG_DARK, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
