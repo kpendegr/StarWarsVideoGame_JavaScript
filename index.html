@@ -996,6 +996,12 @@ function gameLoop() {
 
     if (!gameFocused) {
         keysDown.clear();
+
+        // Keep the game visible while waiting for the player to click.
+        drawRect(BG_DARK, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+        drawPixelText("STAR WARS DUEL", 285, 210, 5, WHITE);
+        drawPixelText("CLICK TO PLAY", 335, 320, 3, HEALTH_GREEN);
+        drawPixelText("CLICK INSIDE THE GAME TO BEGIN", 235, 380, 2, GRAY);
         return;
     }
 
